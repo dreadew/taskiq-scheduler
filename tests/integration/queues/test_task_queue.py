@@ -19,7 +19,7 @@ async def test_enqueue_task_integration(task_service: TaskService):
     """
 
     execution_id = await task_service.enqueue_task(
-        dsn=config.SYNC_DSN,
+        dsn=config.ASYNC_DSN,
         ddl=[DDLStatement(statement="CREATE TABLE IF NOT EXISTS test (id INT);")],
         queries=[
             QueryItem(

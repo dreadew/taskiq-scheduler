@@ -65,9 +65,7 @@ class TaskRunRequest(BaseModel):
     url: str
     ddl: List[DDLStatement] = Field(default_factory=list)
     queries: List[QueryItem] = Field(default_factory=list)
-    priority: Optional[int] = Field(
-        default=config.CELERY_TASK_DEFAULT_PRIORITY, ge=0, le=9
-    )
+    priority: Optional[int] = Field(default=config.TASKIQ_DEFAULT_PRIORITY, ge=0, le=9)
 
     @classmethod
     @field_validator("url")

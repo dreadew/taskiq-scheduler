@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -54,9 +55,18 @@ def task_service_mock():
     task_execution_repo.create = AsyncMock()
     task_execution_repo.update = AsyncMock()
     task_execution_repo.get = AsyncMock()
+    task_execution_repo.get_for_update = AsyncMock()
     task_execution_repo.find_latest_by_field = AsyncMock()
 
+    @asynccontextmanager
+    async def fake_transaction():
+        yield FakeTransaction()
+
+    task_execution_repo.transaction = fake_transaction
+
     task_queue = MagicMock()
+    task_queue.queue_task = AsyncMock()
+    task_queue.cancel_task = AsyncMock()
 
     service = TaskService(task_repo, task_execution_repo, task_queue)
 

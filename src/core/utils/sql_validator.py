@@ -1,7 +1,7 @@
 import re
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import List, Optional, Set
+from typing import List, Set
 
 from src.core.logging import get_logger
 
@@ -279,7 +279,7 @@ class SQLValidatorFactory:
         elif dialect == SQLDialect.TRINO:
             return TrinoValidator()
         else:
-            raise ValueError(f"Неподдерживаемый диалект: {dialect}")
+            raise ValueError(f"неподдерживаемый диалект: {dialect}.")
 
     @staticmethod
     def create_validator_from_dsn(dsn: str) -> BaseSQLValidator:
@@ -288,13 +288,13 @@ class SQLValidatorFactory:
 
         db_type = get_db_type(dsn).lower()
 
-        if db_type == "postgresql":
+        if "postgresql" in db_type:
             return PostgreSQLValidator()
         elif db_type == "trino":
             return TrinoValidator()
         else:
             logger.warning(
-                f"Неизвестный тип БД: {db_type}. Используем PostgreSQL валидатор"
+                f"неизвестный тип БД: {db_type}, используем PostgreSQL валидатор."
             )
             return PostgreSQLValidator()
 

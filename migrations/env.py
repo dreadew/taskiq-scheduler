@@ -1,14 +1,13 @@
 import os
-
 from logging.config import fileConfig
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
 
 from alembic import context
 from dotenv import load_dotenv
+from sqlalchemy import engine_from_config, pool
 
 load_dotenv()
+if os.path.exists(".env.local"):
+    load_dotenv(".env.local", override=True)
 
 from src.infra.db.sqlalchemy.models.base import Base
 
@@ -33,8 +32,10 @@ import src.infra.db.sqlalchemy.models.entities  # noqa: F401
 # my_important_option = config.get_main_option("my_important_option")
 # ... etc.
 
+
 def get_url():
     return os.getenv("SYNC_DSN")
+
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
@@ -75,9 +76,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

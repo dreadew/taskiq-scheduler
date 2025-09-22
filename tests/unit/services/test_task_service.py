@@ -23,7 +23,7 @@ async def test_enqueue_task(task_service_mock):
     task_repo.create.return_value = uuid4()
     task_execution_repo.create.return_value = uuid4()
     task_execution_repo.find_latest_by_field.return_value = None
-    task_queue.queue_task.return_value.id = "celery-task-id"
+    task_queue.queue_task.return_value.id = "taskiq-task-id"
 
     execution_id = await service.enqueue_task(
         dsn="sqlalchemy://user:pass@localhost/db",
@@ -57,17 +57,17 @@ async def test_cancel_task(task_service_mock):
 
     execution_id = uuid4()
     mock_execution = TaskExecution(
-        task_id=uuid4(), celery_task_id="celery-task-id", status=TaskStatus.SCHEDULED
+        task_id=uuid4(), broker_task_id="broker-task-id", status=TaskStatus.SCHEDULED
     )
 
-    task_execution_repo.get.return_value = mock_execution
+    task_execution_repo.get_for_update.return_value = mock_execution
     task_execution_repo.update.return_value = None
 
     await service.cancel(execution_id)
 
-    task_queue.cancel_task.assert_called_once_with("celery-task-id")
-    task_execution_repo.update.assert_awaited_once()
-    assert mock_execution.status == TaskStatus.STOPPED
+    task_queue.cancel_task.assert_called_once_with("broker-task-id")
+
+    assert task_execution_repo.update.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -80,7 +80,7 @@ async def test_cancel_task_not_found(task_service_mock: dict):
     service = task_service_mock["service"]
     task_execution_repo = task_service_mock["task_execution_repo"]
 
-    task_execution_repo.get.return_value = None
+    task_execution_repo.get_for_update.return_value = None
 
     with pytest.raises(ValueError, match="задача не найдена."):
         await service.cancel(uuid4())
@@ -97,7 +97,7 @@ async def test_cancel_task_not_scheduled(task_service_mock: dict):
     task_execution_repo = task_service_mock["task_execution_repo"]
 
     task_execution_repo.get.return_value = TaskExecution(
-        task_id=uuid4(), celery_task_id="celery-task-id", status=TaskStatus.DONE
+        task_id=uuid4(), broker_task_id="taskiq-task-id", status=TaskStatus.DONE
     )
 
     with pytest.raises(
@@ -141,7 +141,7 @@ async def test_enqueue_task_wrong_priority_positive(task_service_mock):
 
         task_repo.create.return_value = uuid4()
         task_execution_repo.create.return_value = uuid4()
-        task_queue.queue_task.return_value.id = "celery-task-id"
+        task_queue.queue_task.return_value.id = "taskiq-task-id"
 
         execution_id = await service.enqueue_task(
             dsn="sqlalchemy://user:pass@localhost/db",
@@ -180,7 +180,7 @@ async def test_enqueue_task_wrong_priority_negative(task_service_mock):
 
         task_repo.create.return_value = uuid4()
         task_execution_repo.create.return_value = uuid4()
-        task_queue.queue_task.return_value.id = "celery-task-id"
+        task_queue.queue_task.return_value.id = "taskiq-task-id"
 
         execution_id = await service.enqueue_task(
             dsn="sqlalchemy://user:pass@localhost/db",
@@ -222,7 +222,7 @@ async def test_enqueue_task_with_previous_execution(task_service_mock):
     task_repo.create.return_value = task_id
     task_execution_repo.create.return_value = uuid4()
     task_execution_repo.find_latest_by_field.return_value = prev_execution
-    task_queue.queue_task.return_value.id = "celery-task-id"
+    task_queue.queue_task.return_value.id = "taskiq-task-id"
 
     execution_id = await service.enqueue_task(
         dsn="sqlalchemy://user:pass@localhost/db",
@@ -263,7 +263,7 @@ async def test_enqueue_task_without_previous_execution(task_service_mock):
     task_repo.create.return_value = task_id
     task_execution_repo.create.return_value = uuid4()
     task_execution_repo.find_latest_by_field.return_value = None
-    task_queue.queue_task.return_value.id = "celery-task-id"
+    task_queue.queue_task.return_value.id = "taskiq-task-id"
 
     execution_id = await service.enqueue_task(
         dsn="sqlalchemy://user:pass@localhost/db",

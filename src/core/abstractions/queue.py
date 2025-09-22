@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
 
-from src.core.config import config
-
 
 class Queue(ABC):
     """
@@ -9,16 +7,17 @@ class Queue(ABC):
     """
 
     @abstractmethod
-    def queue_task(
-        self,
-        task_name: str,
-        priority: int = config.CELERY_TASK_DEFAULT_PRIORITY,
-        params=None,
-    ):
+    async def queue_task(self, params=None):
         """
         Поставить задачу в очередь
-        :param task_name: название задачи
-        :param priority: приоритет
         :param params: параметры для задачи
+        """
+        pass
+
+    @abstractmethod
+    async def cancel_task(self, task_id: str):
+        """
+        Отменить выполнение задачи
+        :param task_id: идентификатор задачи
         """
         pass

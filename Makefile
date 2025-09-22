@@ -1,13 +1,10 @@
-.PHONY: start-celery-worker, start-celery-flower, start-fastapi, upgrade, downgrade, history
+.PHONY: start-taskiq-worker, start-fastapi, upgrade, downgrade, history
 
-start-celery-worker:
-    celery -A src.infra.scheduler.celery_app worker --loglevel=info --concurrency=4
-
-start-celery-flower:
-    celery -A src.infra.scheduler.celery_app flower --port=5000 --basic_auth=user:password
+start-taskiq-worker:
+    taskiq worker src.infra.brokers.worker:nats_broker --workers=4
 
 start-fastapi:
-    uvicorn src.api.main:app --host 0.0.0.0 --port 8080 --reload
+    uvicorn src.api.app:app --host 0.0.0.0 --port 8080 --reload
 
 upgrade:
     alembic upgrade head

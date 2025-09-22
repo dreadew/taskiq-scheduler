@@ -41,7 +41,7 @@ class TaskExecution(AuditableEntity):
     task_id = Column(
         UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False
     )
-    celery_task_id = Column(String(36), unique=True, nullable=True)
+    broker_task_id = Column(String(36), unique=True, nullable=True)
     parameters = Column(JSON)
     scheduled_at = Column(DateTime(timezone=True), nullable=True)
     started_at = Column(DateTime(timezone=True), nullable=True)

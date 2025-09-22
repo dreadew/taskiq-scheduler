@@ -3,7 +3,7 @@ import pytest
 from src.application.services.task_service import TaskService
 from src.infra.db.sqlalchemy.models.entities import Task, TaskExecution
 from src.infra.db.sqlalchemy.session import AsyncSessionLocal
-from src.infra.queues.celery_task_queue import TaskQueue
+from src.infra.queues.taskiq_task_queue import TaskQueue
 from src.infra.repos.base_repo import BaseRepository
 
 

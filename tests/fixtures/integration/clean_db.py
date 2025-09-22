@@ -7,7 +7,7 @@ from src.infra.db.sqlalchemy.models.entities import Task, TaskExecution
 from src.infra.db.sqlalchemy.session import AsyncSessionLocal
 
 
-@pytest.fixture(autouse=True, scope="function")
+@pytest.fixture(scope="function")
 async def clean_db():
     """
     Очищает таблицы до и после каждого теста.

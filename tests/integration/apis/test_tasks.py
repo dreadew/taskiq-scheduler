@@ -10,7 +10,7 @@ from tests.fixtures.integration.api_client import api_client  # noqa: F401
 
 def make_task_payload():
     return {
-        "url": config.SYNC_DSN,
+        "url": config.ASYNC_DSN,
         "ddl": [{"statement": "CREATE TABLE IF NOT EXISTS test (id INT);"}],
         "queries": [
             {

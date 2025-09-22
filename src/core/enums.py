@@ -8,6 +8,8 @@ class TaskStatus(str, Enum):
 
     SCHEDULED = "SCHEDULED"
     RUNNING = "RUNNING"
+    CANCELLING = "CANCELLING"
+    CANCELLED = "CANCELLED"
     DONE = "DONE"
     FAILED = "FAILED"
     STOPPED = "STOPPED"

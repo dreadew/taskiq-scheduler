@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -7,8 +7,11 @@ from src.infra.tasks import db_task
 
 
 @pytest.mark.unit
-def test_run_task_success():
+@pytest.mark.asyncio
+async def test_run_task_success():
     execution_id = uuid.uuid4()
+    mock_ctx = AsyncMock()
+    mock_ctx.is_cancelled.return_value = False
 
     with (
         patch("src.infra.tasks.db_task._save_task_startup") as mock_startup,
@@ -20,8 +23,10 @@ def test_run_task_success():
         mock_startup.return_value = None
         mock_queries.return_value = []
 
-        db_task._run_task(execution_id, "dsn", ["DDL"], ["QUERY"])
+        await db_task._run_task(execution_id, "dsn", ["DDL"], ["QUERY"], mock_ctx)
 
         mock_startup.assert_called_once_with(execution_id)
-        mock_queries.assert_called_once_with(execution_id, "dsn", ["DDL"], ["QUERY"])
+        mock_queries.assert_called_once_with(
+            execution_id, "dsn", ["DDL"], ["QUERY"], mock_ctx
+        )
         mock_result.assert_called_once_with(execution_id, [])

@@ -1,8 +1,9 @@
+from contextlib import asynccontextmanager
 from typing import Awaitable, Callable, TypeVar
 from uuid import UUID
 
-from sqlalchemy.future import select
 from sqlalchemy import desc
+from sqlalchemy.future import select
 
 from src.core.abstractions.repo import Repository
 from src.core.models.paging import PagingParams
@@ -48,6 +49,29 @@ class BaseRepository(Repository[T]):
     async def get(self, obj_id: UUID) -> T | None:
         async with self.session_factory() as session:
             return await session.get(self.entity_type, obj_id)
+
+    async def get_for_update(self, obj_id: UUID) -> T | None:
+        """Получить объект с блокировкой для обновления"""
+        async with self.session_factory() as session:
+            stmt = (
+                select(self.entity_type)
+                .where(self.entity_type.id == obj_id)
+                .with_for_update()
+            )
+            result = await session.execute(stmt)
+            return result.scalars().first()
+
+    @asynccontextmanager
+    async def transaction(self):
+        """Контекстный менеджер для транзакций"""
+        async with self.session_factory() as session:
+            async with session.begin():
+                original_factory = self.session_factory
+                self.session_factory = lambda: session
+                try:
+                    yield session
+                finally:
+                    self.session_factory = original_factory
 
     async def get_all(self, params: PagingParams) -> list[T]:
         async with self.session_factory() as session:

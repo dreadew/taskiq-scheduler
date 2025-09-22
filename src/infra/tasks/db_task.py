@@ -2,28 +2,33 @@ import traceback
 import uuid
 from typing import Any, List
 
-from celery import shared_task
 from sqlalchemy import text
 
+from src.core.cancellation import CancellationContext, TaskCancelledError
+from src.core.circuit_breaker import CircuitBreakerOpenError, circuit_breaker_protection
 from src.core.config import config
 from src.core.enums import TaskStatus
 from src.core.logging import get_logger
 from src.core.utils.date import utc_now
+from src.infra.brokers.nats_broker import nats_broker as broker
 from src.infra.db.sqlalchemy.models.entities import TaskExecution
-from src.infra.db.sqlalchemy.session import SessionLocal, get_external_db_session_sync
+from src.infra.db.sqlalchemy.session import AsyncSessionLocal, get_external_db_session
+from src.infra.metrics.taskiq import (
+    task_finished_metrics,
+    task_retry_metrics,
+    task_started_metrics,
+)
 
 logger = get_logger(__name__)
 
 
-@shared_task(
-    bind=True,
-    max_retries=config.CELERY_TASK_MAX_RETRIES,
-    acks_late=True,
-    time_limit=config.CELERY_TASK_TIME_LIMIT,
+@broker.task(
+    retry=config.TASKIQ_MAX_RETRIES,
+    timeout=config.TASKIQ_TIME_LIMIT,
 )
-def execute_db_task(
-    self, execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any]
-):
+async def execute_db_task(
+    execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any]
+) -> None:
     """
     Фоновая задача для выполнения DDL и Queries
     :param execution_id: идентификатор запуска
@@ -32,91 +37,140 @@ def execute_db_task(
     :param queries: запросы для проверки
     """
 
+    task_id = str(execution_id)
+    task_name = "execute_db_task"
+
+    task_started_metrics(task_name, task_id)
     logger.info(f"(фоновая задача {execution_id}): начинается обработка...")
+
     try:
-        _run_task(execution_id, dsn, ddl, queries)
+        async with CancellationContext(str(execution_id)) as ctx:
+            await _run_task(execution_id, dsn, ddl, queries, ctx)
+        task_finished_metrics(task_name, task_id, success=True)
+    except TaskCancelledError:
+        logger.info(f"(фоновая задача {execution_id}): задача отменена gracefully")
+        task_finished_metrics(task_name, task_id, success=False, cancelled=True)
+        await _update_execution_status(execution_id, TaskStatus.CANCELLED)
+    except CircuitBreakerOpenError as e:
+        logger.warning(f"(фоновая задача {execution_id}): circuit breaker открыт - {e}")
+        task_finished_metrics(task_name, task_id, success=False)
+        await _update_execution_status(execution_id, TaskStatus.FAILED)
+        return
     except Exception as e:
         logger.exception(f"(фоновая задача {execution_id}): ошибка выполнения задачи")
-        raise self.retry(exc=e, countdown=2**self.request.retries)
+        task_retry_metrics(task_name)
+        raise e
 
 
-def _run_task(execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any]):
+async def _update_execution_status(execution_id: uuid.UUID, status: TaskStatus):
+    """Обновить статус выполнения задачи"""
+    async with AsyncSessionLocal() as session:
+        execution = await session.get(TaskExecution, execution_id)
+        if execution:
+            execution.status = status
+            await session.commit()
+
+
+async def _run_task(
+    execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any], ctx
+):
     """
-    Запустить задачу на выполнение
+    Запустить задачу на выполнение с поддержкой graceful отмены
     :param execution_id: идентификатор запуска
     :param dsn: строка подключения к внешней БД
     :param ddl: запросы для создания структуры БД
     :param queries: запросы для проверки
+    :param ctx: контекст отмены
     """
     try:
-        _save_task_startup(execution_id)
-        results = _apply_ddl_and_queries(execution_id, dsn, ddl, queries)
-        _save_task_result(execution_id, results)
+        await _save_task_startup(execution_id)
+
+        if await ctx.is_cancelled():
+            raise TaskCancelledError()
+
+        results = await _apply_ddl_and_queries(execution_id, dsn, ddl, queries, ctx)
+        await _save_task_result(execution_id, results)
+    except TaskCancelledError:
+        raise
     except Exception as e:
         logger.info(
             f"(фоновая задача {execution_id}): произошла ошибка при выполнении - {str(e)}"
         )
         tb = traceback.format_exc()
         error = {"error": str(e), "traceback": tb}
-        _save_task_result(execution_id, [], error)
-        raise
+        await _save_task_result(execution_id, [], error)
         raise
 
 
-def _save_task_startup(execution_id: uuid.UUID):
+async def _save_task_startup(execution_id: uuid.UUID):
     """
     Сохранить время начала выполнения задачи и изменить статус на RUNNING
     :param execution_id: идентификатор запуска
     """
-    with SessionLocal() as session:
+    async with AsyncSessionLocal() as session:
         logger.info(
             f"(фоновой задачи {execution_id}): сохранение информации о дате начала и смена статуса"
         )
-        task_execution: TaskExecution = session.get(TaskExecution, execution_id)
+        task_execution: TaskExecution = await session.get(TaskExecution, execution_id)
         task_execution.started_at = utc_now()
         task_execution.status = TaskStatus.RUNNING
-        session.commit()
+        await session.commit()
 
 
-def _apply_ddl_and_queries(
-    execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any]
+async def _apply_ddl_and_queries(
+    execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any], ctx
 ):
     """
-    Применить ddl к внешней БД
+    Применить ddl к внешней БД с поддержкой graceful отмены
     :param execution_id: идентификатор запущенной задачи
     :param dsn: строка подключения к БД
     :param ddl: запросы для создания схемы
     :param queries: запросы для выполнения в БД
+    :param ctx: контекст отмены
     :return: результаты выполнения запросов
     """
-    external_session = get_external_db_session_sync(dsn)
+    external_session = get_external_db_session(dsn)
     results = []
 
-    with external_session() as session:
-        for query in ddl:
-            logger.info(f"(фоновая задача {execution_id}): применение DDL ({query})")
-            session.execute(text(query.rstrip(";")))
+    async with circuit_breaker_protection(dsn):
+        async with external_session() as session:
+            for ddl_stmt in ddl:
+                if await ctx.is_cancelled():
+                    raise TaskCancelledError()
 
-        for query in queries:
-            logger.info(
-                f"(фоновая задача {execution_id}): применение запроса ({query})"
-            )
-            result = session.execute(text(query["query"].rstrip(";")))
+                logger.info(
+                    f"(фоновая задача {execution_id}): применение DDL ({ddl_stmt['statement']})"
+                )
+                await session.execute(text(ddl_stmt["statement"].rstrip(";")))
 
-            query_result = {
-                "queryid": query.get("queryid"),
-                "query": query["query"],
-                "rows": result.fetchall() if result.returns_rows else [],
-                "rowcount": result.rowcount,
-            }
-            results.append(query_result)
+            for query_item in queries:
+                if await ctx.is_cancelled():
+                    raise TaskCancelledError()
 
-        session.commit()
+                logger.info(
+                    f"(фоновая задача {execution_id}): применение запроса ({query_item['query']})"
+                )
+                result = await session.execute(text(query_item["query"].rstrip(";")))
+
+                rows_data = []
+                if result.returns_rows:
+                    rows = result.fetchall()
+                    rows_data = [tuple(row) for row in rows]
+
+                query_result = {
+                    "queryid": query_item["queryid"],
+                    "query": query_item["query"],
+                    "rows": rows_data,
+                    "rowcount": result.rowcount,
+                }
+                results.append(query_result)
+
+            await session.commit()
 
     return results
 
 
-def _save_task_result(execution_id: uuid.UUID, results: List[Any], error=None):
+async def _save_task_result(execution_id: uuid.UUID, results: List[Any], error=None):
     """
     Сохранить результат выполнения задачи
     :param execution_id: идентификатор запуска
@@ -128,8 +182,8 @@ def _save_task_result(execution_id: uuid.UUID, results: List[Any], error=None):
     is_error = error is not None and error != {}
 
     logger.info(f"(фоновая задача {execution_id}): сохранение результатов")
-    with SessionLocal() as session:
-        task_execution: TaskExecution = session.get(TaskExecution, execution_id)
+    async with AsyncSessionLocal() as session:
+        task_execution: TaskExecution = await session.get(TaskExecution, execution_id)
         task_execution.finished_at = utc_now()
         task_execution.status = TaskStatus.DONE if not is_error else TaskStatus.FAILED
 
@@ -139,4 +193,4 @@ def _save_task_result(execution_id: uuid.UUID, results: List[Any], error=None):
             task_execution.result = error
             task_execution.attempt += 1
 
-        session.commit()
+        await session.commit()

@@ -2,9 +2,9 @@ import pytest
 
 from src.core.utils.sql_validator import (
     PostgreSQLValidator,
-    TrinoValidator,
     SQLDialect,
     SQLValidatorFactory,
+    TrinoValidator,
     ValidationResult,
     validate_sql_batch,
 )
@@ -245,7 +245,7 @@ def test_trino_validator_validate_trino_specific_window_functions():
     validator = TrinoValidator()
     result = validator.validate_query(
         """
-        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) as rn 
+        SELECT id, ROW_NUMBER() OVER (ORDER BY created_at) as rn
         FROM users;
     """
     )
@@ -310,7 +310,7 @@ def test_sql_validator_factory_create_validator_from_dsn_unknown():
 @pytest.mark.unit
 def test_sql_validator_factory_create_validator_unsupported_dialect():
     """Тест создания валидатора для неподдерживаемого диалекта."""
-    with pytest.raises(ValueError, match="Неподдерживаемый диалект"):
+    with pytest.raises(ValueError, match="неподдерживаемый диалект"):
         SQLValidatorFactory.create_validator("unsupported")
 
 
@@ -429,8 +429,8 @@ def test_nested_queries():
                (SELECT COUNT(*) FROM orders o WHERE o.user_id = u.id) as order_count
         FROM users u
         WHERE u.id IN (
-            SELECT DISTINCT user_id 
-            FROM orders 
+            SELECT DISTINCT user_id
+            FROM orders
             WHERE created_at >= '2024-01-01'
         );
     """

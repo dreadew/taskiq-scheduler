@@ -16,6 +16,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - default
+      - monitoring
 
   pgbouncer_transaction:
     image: edoburu/pgbouncer:v1.24.1-p1

@@ -1,0 +1,40 @@
+include:
+  - ./composes/pg/compose.yaml
+  - ./composes/valkey/compose.yaml
+  - ./composes/rmq/compose.yaml
+  - ./composes/prometheus/compose.yaml
+
+services:
+  fastapi:
+      image: scheduler-base:latest
+      build:
+        context: .
+      container_name: fastapi
+      command: uvicorn src.api.app:app --host 0.0.0.0 --port 8080
+      ports:
+        - "8080:8080"
+      depends_on:
+        postgres:
+          condition: service_healthy
+        rabbitmq:
+          condition: service_healthy
+
+  celery_worker:
+    image: scheduler-base:latest
+    container_name: celery_worker
+    command: celery -A src.infra.scheduler.celery_app worker --loglevel=info --concurrency=4
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  flower:
+    image: scheduler-base:latest
+    container_name: flower
+    command: celery -A src.infra.scheduler.celery_app flower --port=5555 --basic_auth=user:password
+    ports:
+      - "5555:5555"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy

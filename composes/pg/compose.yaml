@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pgbouncer_transaction:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: pgbouncer_transaction
+    restart: unless-stopped
+    ports:
+      - "6432:6432"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: postgres
+      PGBOUNCER_USER: postgres
+      PGBOUNCER_PASSWORD: postgres
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 10
+      DEFAULT_POOL_SIZE: 5
+    depends_on:
+      - postgres
+
+  pgbouncer_session:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    container_name: pgbouncer_session
+    restart: unless-stopped
+    ports:
+      - "6433:6432"
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: postgres
+      PGBOUNCER_USER: postgres
+      PGBOUNCER_PASSWORD: postgres
+      POOL_MODE: session
+      MAX_CLIENT_CONN: 10
+      DEFAULT_POOL_SIZE: 5
+    depends_on:
+      - postgres
+
+volumes:
+  pg_data:

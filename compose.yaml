@@ -27,7 +27,7 @@ services:
   taskiq_worker:
     image: scheduler-base:latest
     container_name: taskiq_worker
-    command: taskiq worker src.infra.brokers.worker:broker
+    command: taskiq worker src.infra.brokers.worker:broker --workers ${TASKIQ_WORKERS:-4}
     environment:
       - NATS_URL=nats://nats:4222
     networks:

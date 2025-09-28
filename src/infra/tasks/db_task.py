@@ -2,17 +2,16 @@ import traceback
 import uuid
 from typing import Any, List
 
-from sqlalchemy import text
-
 from src.core.cancellation import CancellationContext, TaskCancelledError
-from src.core.circuit_breaker import CircuitBreakerOpenError, circuit_breaker_protection
+from src.core.circuit_breaker import CircuitBreakerOpenError
 from src.core.config import config
 from src.core.enums import TaskStatus
 from src.core.logging import get_logger
 from src.core.utils.date import utc_now
 from src.infra.brokers.nats_broker import nats_broker as broker
+from src.infra.clients.grpc_client import schema_review_client
 from src.infra.db.sqlalchemy.models.entities import TaskExecution
-from src.infra.db.sqlalchemy.session import AsyncSessionLocal, get_external_db_session
+from src.infra.db.sqlalchemy.session import AsyncSessionLocal
 from src.infra.metrics.taskiq import (
     task_finished_metrics,
     task_retry_metrics,
@@ -30,9 +29,9 @@ async def execute_db_task(
     execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any]
 ) -> None:
     """
-    Фоновая задача для выполнения DDL и Queries
+    Фоновая задача для анализа DDL и Queries через gRPC сервис
     :param execution_id: идентификатор запуска
-    :param dsn: строка подключения к внешней БД
+    :param dsn: URL базы данных (для передачи в gRPC сервис)
     :param ddl: запросы для создания структуры БД
     :param queries: запросы для проверки
     """
@@ -75,9 +74,9 @@ async def _run_task(
     execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any], ctx
 ):
     """
-    Запустить задачу на выполнение с поддержкой graceful отмены
+    Запустить задачу анализа через gRPC с поддержкой graceful отмены
     :param execution_id: идентификатор запуска
-    :param dsn: строка подключения к внешней БД
+    :param dsn: URL базы данных для передачи в gRPC сервис
     :param ddl: запросы для создания структуры БД
     :param queries: запросы для проверки
     :param ctx: контекст отмены
@@ -121,60 +120,86 @@ async def _apply_ddl_and_queries(
     execution_id: uuid.UUID, dsn: str, ddl: List[Any], queries: List[Any], ctx
 ):
     """
-    Применить ddl к внешней БД с поддержкой graceful отмены
+    Отправить DDL и queries в gRPC сервис для анализа схемы
     :param execution_id: идентификатор запущенной задачи
-    :param dsn: строка подключения к БД
+    :param dsn: строка подключения к БД (используется как URL)
     :param ddl: запросы для создания схемы
     :param queries: запросы для выполнения в БД
     :param ctx: контекст отмены
-    :return: результаты выполнения запросов
+    :return: результаты анализа от gRPC сервиса
     """
-    external_session = get_external_db_session(dsn)
-    results = []
+    logger.info(
+        f"(фоновая задача {execution_id}): отправка данных в gRPC сервис для анализа"
+    )
 
-    async with circuit_breaker_protection(dsn):
-        async with external_session() as session:
-            for ddl_stmt in ddl:
-                if await ctx.is_cancelled():
-                    raise TaskCancelledError()
+    if await ctx.is_cancelled():
+        raise TaskCancelledError()
 
-                logger.info(
-                    f"(фоновая задача {execution_id}): применение DDL ({ddl_stmt['statement']})"
+    ddl_statements = [ddl_stmt["statement"] for ddl_stmt in ddl]
+
+    grpc_queries = []
+    for query_item in queries:
+        grpc_query = {
+            "query_id": query_item.get("queryid", ""),
+            "query": query_item.get("query", ""),
+            "runquantity": query_item.get("runquantity", 0),
+            "executiontime": query_item.get("executiontime", 0),
+        }
+        grpc_queries.append(grpc_query)
+
+    try:
+        async with schema_review_client as client:
+            if await ctx.is_cancelled():
+                raise TaskCancelledError()
+
+            logger.info(
+                f"(фоновая задача {execution_id}): отправка {len(ddl_statements)} DDL и {len(grpc_queries)} запросов"
+            )
+
+            grpc_result = await client.review_schema(
+                url=dsn,
+                ddl_statements=ddl_statements,
+                queries=grpc_queries,
+                thread_id=str(execution_id),
+            )
+
+            logger.info(
+                f"(фоновая задача {execution_id}): получен ответ от gRPC сервиса: success={grpc_result['success']}"
+            )
+
+            if grpc_result.get("ddl"):
+                for ddl_result in grpc_result["ddl"]:
+                    logger.info(f"DDL анализ: {ddl_result['statement']}")
+
+            if grpc_result.get("migrations"):
+                for migration in grpc_result["migrations"]:
+                    logger.info(f"Рекомендованная миграция: {migration['statement']}")
+
+            if grpc_result.get("warnings"):
+                for warning in grpc_result["warnings"]:
+                    logger.warning(f"Предупреждение анализа: {warning}")
+
+            if grpc_result.get("error"):
+                logger.error(f"Ошибка анализа: {grpc_result['error']}")
+                raise Exception(
+                    f"gRPC анализ завершился с ошибкой: {grpc_result['error']}"
                 )
-                await session.execute(text(ddl_stmt["statement"].rstrip(";")))
 
-            for query_item in queries:
-                if await ctx.is_cancelled():
-                    raise TaskCancelledError()
+            # Возвращаем весь результат gRPC для сохранения в БД
+            return grpc_result
 
-                logger.info(
-                    f"(фоновая задача {execution_id}): применение запроса ({query_item['query']})"
-                )
-                result = await session.execute(text(query_item["query"].rstrip(";")))
-
-                rows_data = []
-                if result.returns_rows:
-                    rows = result.fetchall()
-                    rows_data = [tuple(row) for row in rows]
-
-                query_result = {
-                    "queryid": query_item["queryid"],
-                    "query": query_item["query"],
-                    "rows": rows_data,
-                    "rowcount": result.rowcount,
-                }
-                results.append(query_result)
-
-            await session.commit()
-
-    return results
+    except Exception as e:
+        logger.error(
+            f"(фоновая задача {execution_id}): ошибка при обращении к gRPC сервису: {e}"
+        )
+        raise
 
 
-async def _save_task_result(execution_id: uuid.UUID, results: List[Any], error=None):
+async def _save_task_result(execution_id: uuid.UUID, results: Any, error=None):
     """
     Сохранить результат выполнения задачи
     :param execution_id: идентификатор запуска
-    :param results: результат выполнения
+    :param results: результат анализа от gRPC сервиса
     :param error: ошибка выполнения
     """
     if error is None:
@@ -188,7 +213,11 @@ async def _save_task_result(execution_id: uuid.UUID, results: List[Any], error=N
         task_execution.status = TaskStatus.DONE if not is_error else TaskStatus.FAILED
 
         if not is_error:
-            task_execution.result = {"success": True, "results": results}
+            task_execution.result = {
+                "ddl": results.get("ddl", []),
+                "migrations": results.get("migrations", []),
+                "queries": results.get("queries", []),
+            }
         else:
             task_execution.result = error
             task_execution.attempt += 1

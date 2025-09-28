@@ -1,8 +1,8 @@
-# SQL RecSys
+# Taskiq Scheduler
 
-[![CI](https://github.com/dreadew/sql-recsys/actions/workflows/ci.yml/badge.svg)](https://github.com/dreadew/sql-recsys/actions/workflows/ci.yml)
+[![CI](https://github.com/dreadew/taskiq-scheduler/actions/workflows/ci.yml/badge.svg)](https://github.com/dreadew/taskiq-scheduler/actions/workflows/ci.yml)
 
-Асинхронный сервис для выполнения SQL задач с мониторингом и очередями.
+Асинхронный сервис для выполнения фоновых задач с мониторингом и очередями.
 
 ### Настройка переменных окружения
 

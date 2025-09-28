@@ -21,14 +21,16 @@ def create_nats_broker() -> NatsBroker:
     )
 
     broker = NatsBroker(
-        servers=config.NATS_URL, subject=config.NATS_QUEUE_NAME
+        servers=config.NATS_URL,
+        subject=config.NATS_QUEUE_NAME,
+        queue="taskiq_worker_group",
     ).with_result_backend(result_backend)
 
     broker.add_middlewares(
         SimpleRetryMiddleware(default_retry_count=config.TASKIQ_MAX_RETRIES),
     )
 
-    logger.info("NATS брокер успешно создан")
+    logger.info("NATS брокер успешно создан с queue group для load balancing")
     return broker
 
 

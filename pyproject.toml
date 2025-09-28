@@ -24,6 +24,8 @@ dependencies = [
   "taskiq-nats (>=0.5.1,<0.6.0)",
   "nats-py (>=2.11.0,<3.0.0)",
   "taskiq-postgresql (>=0.1.4,<0.2.0)",
+  "grpcio (>=1.66.0,<2.0.0)",
+  "grpcio-tools (>=1.66.0,<2.0.0)",
 ]
 description = ""
 license = {text = "MIT"}

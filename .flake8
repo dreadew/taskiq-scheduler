@@ -10,7 +10,8 @@ exclude =
     .venv,
     .pytest_cache,
     migrations,
-    alembic
+    alembic,
+    src/generated
 per-file-ignores =
     # Tests can use assert and redefine fixtures
     tests/*:S101,F811

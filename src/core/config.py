@@ -29,7 +29,7 @@ class Config:
 
     TASKIQ_DEFAULT_PRIORITY = int(os.getenv("TASKIQ_DEFAULT_PRIORITY", 3))
     TASKIQ_MAX_RETRIES = int(os.getenv("TASKIQ_MAX_RETRIES", 3))
-    TASKIQ_TIME_LIMIT = int(os.getenv("TASKIQ_TIME_LIMIT", 1200))
+    TASKIQ_TIME_LIMIT = int(os.getenv("TASKIQ_TIME_LIMIT", 1500))
 
     METRICS_PORT = int(os.getenv("METRICS_PORT", 5040))
     TASKIQ_METRICS_PORT = int(os.getenv("TASKIQ_METRICS_PORT", 5060))
@@ -43,6 +43,12 @@ class Config:
     CIRCUIT_BREAKER_EXPECTED_EXCEPTION_TIMEOUT = int(
         os.getenv("CIRCUIT_BREAKER_EXPECTED_EXCEPTION_TIMEOUT", 30)
     )
+
+    GRPC_URL = os.getenv("GRPC_URL", "localhost:50051")
+    GRPC_TIMEOUT = int(os.getenv("GRPC_TIMEOUT", 1200))
+    GRPC_CONNECTION_TIMEOUT = int(os.getenv("GRPC_CONNECTION_TIMEOUT", 30))
+    GRPC_KEEPALIVE_TIME = int(os.getenv("GRPC_KEEPALIVE_TIME", 30))
+    GRPC_KEEPALIVE_TIMEOUT = int(os.getenv("GRPC_KEEPALIVE_TIMEOUT", 5))
 
 
 config = Config()
